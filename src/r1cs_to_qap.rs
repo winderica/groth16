@@ -1,14 +1,11 @@
 use ark_ff::{One, PrimeField, Zero};
 use ark_poly::EvaluationDomain;
-use ark_std::{cfg_iter, cfg_iter_mut, vec};
+use ark_std::{cfg_into_iter, cfg_iter, cfg_iter_mut, end_timer, start_timer, vec};
+use ark_std::rand::Rng;
 
-use crate::Vec;
-use ark_relations::r1cs::{
-    ConstraintMatrices, ConstraintSystemRef, Result as R1CSResult, SynthesisError,
-};
+use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystemRef, Result as R1CSResult, SynthesisError};
 use core::ops::{AddAssign, Deref};
 
-#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 #[inline]
@@ -19,11 +16,7 @@ where
     RHS: Send + Sync + core::ops::Mul<&'a LHS, Output = RHS> + Copy,
     R: Zero + Send + Sync + AddAssign<RHS> + core::iter::Sum,
 {
-    // Need to wrap in a closure when using Rayon
-    #[cfg(feature = "parallel")]
     let zero = || R::zero();
-    #[cfg(not(feature = "parallel"))]
-    let zero = R::zero();
 
     let res = cfg_iter!(terms).fold(zero, |mut sum, (coeff, index)| {
         let val = &assignment[*index];
@@ -37,11 +30,7 @@ where
         sum
     });
 
-    // Need to explicitly call `.sum()` when using Rayon
-    #[cfg(feature = "parallel")]
     return res.sum();
-    #[cfg(not(feature = "parallel"))]
-    return res;
 }
 
 /// Computes instance and witness reductions from R1CS to
@@ -50,8 +39,8 @@ pub trait R1CSToQAP {
     /// Computes a QAP instance corresponding to the R1CS instance defined by `cs`.
     fn instance_map_with_evaluation<F: PrimeField, D: EvaluationDomain<F>>(
         cs: ConstraintSystemRef<F>,
-        t: &F,
-    ) -> Result<(Vec<F>, Vec<F>, Vec<F>, F, usize, usize), SynthesisError>;
+        rng: &mut impl Rng,
+    ) -> Result<(Vec<F>, Vec<F>, Vec<F>, F, F, usize, usize), SynthesisError>;
 
     #[inline]
     /// Computes a QAP witness corresponding to the R1CS witness defined by `cs`.
@@ -59,7 +48,7 @@ pub trait R1CSToQAP {
         prover: ConstraintSystemRef<F>,
     ) -> Result<Vec<F>, SynthesisError> {
         let matrices = prover.to_matrices().unwrap();
-        let num_inputs = prover.num_instance_variables();
+        let num_inputs = prover.num_instance_and_commitment_variables();
         let num_constraints = prover.num_constraints();
 
         let cs = prover.borrow().unwrap();
@@ -67,6 +56,8 @@ pub trait R1CSToQAP {
 
         let full_assignment = [
             prover.instance_assignment.as_slice(),
+            prover.commitment_assignment.as_slice(),
+            prover.committed_assignment.as_slice(),
             prover.witness_assignment.as_slice(),
         ]
         .concat();
@@ -105,21 +96,25 @@ impl R1CSToQAP for LibsnarkReduction {
     #[allow(clippy::type_complexity)]
     fn instance_map_with_evaluation<F: PrimeField, D: EvaluationDomain<F>>(
         cs: ConstraintSystemRef<F>,
-        t: &F,
-    ) -> R1CSResult<(Vec<F>, Vec<F>, Vec<F>, F, usize, usize)> {
+        rng: &mut impl Rng,
+    ) -> R1CSResult<(Vec<F>, Vec<F>, Vec<F>, F, F, usize, usize)> {
         let matrices = cs.to_matrices().unwrap();
-        let domain_size = cs.num_constraints() + cs.num_instance_variables();
+        let domain_size = cs.num_constraints() + cs.num_instance_and_commitment_variables();
         let domain = D::new(domain_size).ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
         let domain_size = domain.size();
 
-        let zt = domain.evaluate_vanishing_polynomial(*t);
+        let t = domain.sample_element_outside_domain(rng);
+
+        let zt = domain.evaluate_vanishing_polynomial(t);
 
         // Evaluate all Lagrange polynomials
         let coefficients_time = start_timer!(|| "Evaluate Lagrange coefficients");
-        let u = domain.evaluate_all_lagrange_coefficients(*t);
+        let u = domain.evaluate_all_lagrange_coefficients(t);
         end_timer!(coefficients_time);
 
-        let qap_num_variables = (cs.num_instance_variables() - 1) + cs.num_witness_variables();
+        let qap_num_variables = (cs.num_instance_and_commitment_variables() - 1)
+            + cs.num_witness_variables()
+            + cs.num_committed_variables();
 
         let mut a = vec![F::zero(); qap_num_variables + 1];
         let mut b = vec![F::zero(); qap_num_variables + 1];
@@ -127,7 +122,7 @@ impl R1CSToQAP for LibsnarkReduction {
 
         {
             let start = 0;
-            let end = cs.num_instance_variables();
+            let end = cs.num_instance_and_commitment_variables();
             let num_constraints = cs.num_constraints();
             a[start..end].copy_from_slice(&u[(start + num_constraints)..(end + num_constraints)]);
         }
@@ -144,7 +139,7 @@ impl R1CSToQAP for LibsnarkReduction {
             }
         }
 
-        Ok((a, b, c, zt, qap_num_variables, domain_size))
+        Ok((a, b, c, t, zt, qap_num_variables, domain_size))
     }
 
     fn witness_map_from_matrices<F: PrimeField, D: EvaluationDomain<F>>(
