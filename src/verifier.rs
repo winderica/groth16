@@ -73,7 +73,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
             && PESubspaceSnark::<E>::verify(
                 &pvk.vk.link_pp,
                 &pvk.vk.link_vk,
-                &[proof.link_d, proof.d],
+                &[proof.link_d.clone(), vec![proof.d]].concat(),
                 &proof.link_pi,
             ))
     }

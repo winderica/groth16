@@ -29,7 +29,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         r: E::ScalarField,
         s: E::ScalarField,
         v: E::ScalarField,
-        link_v: E::ScalarField,
+        link_v: &[E::ScalarField],
         h: &[E::ScalarField],
         input_assignment: &[E::ScalarField],
         committed_assignment: &[E::ScalarField],
@@ -114,13 +114,19 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         g_d += vk.eta_gamma_inv_g1 * v;
         end_timer!(d_acc_time);
 
-        let mut comm_wits_with_link_hider = committed_bigint;
-        comm_wits_with_link_hider.push(link_v.into_bigint());
-
-        let g_d_link = E::G1::msm_bigint(&pk.link_bases, &comm_wits_with_link_hider[..]);
+        let mut c = 0;
+        let g_d_links = link_v.iter().enumerate().map(|(i, r)| {
+            let r = E::G1::msm_bigint(
+                &pk.link_bases[i][0..pk.link_bases[i].len() - 1],
+                &committed_bigint[c..c + pk.link_bases[i].len() - 1],
+            ) + pk.link_bases[i][pk.link_bases[i].len() - 1] * r;
+            c += pk.link_bases[i].len() - 1;
+            r
+        }).collect::<Vec<_>>();
+        let g_d_links = E::G1::normalize_batch(&g_d_links);
 
         let mut ss_snark_witness = committed_assignment.to_vec();
-        ss_snark_witness.push(link_v);
+        ss_snark_witness.extend_from_slice(link_v);
         ss_snark_witness.push(v);
 
         let link_time = start_timer!(|| "Compute CP_{link}");
@@ -134,7 +140,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
             c: g_c.into_affine(),
             d: g_d.into_affine(),
 
-            link_d: g_d_link.into_affine(),
+            link_d: g_d_links,
             link_pi,
         })
     }
@@ -154,9 +160,11 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         let r = E::ScalarField::rand(rng);
         let s = E::ScalarField::rand(rng);
         let v = E::ScalarField::zero(); // !TODO!
-        let link_v = E::ScalarField::zero(); // !TODO!
+        let link_v = (0..pk.common.link_bases.len())
+            .map(|_| E::ScalarField::zero())
+            .collect::<Vec<_>>(); // !TODO!
 
-        Self::create_proof_with_reduction(circuit, pk, r, s, v, link_v)
+        Self::create_proof_with_reduction(circuit, pk, r, s, v, &link_v)
     }
 
     /// Create a Groth16 proof using randomness `r` and `s` and the provided
@@ -168,7 +176,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         r: E::ScalarField,
         s: E::ScalarField,
         v: E::ScalarField,
-        link_v: E::ScalarField,
+        link_v: &[E::ScalarField],
     ) -> R1CSResult<Proof<E>>
     where
         E: Pairing,
