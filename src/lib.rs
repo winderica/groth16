@@ -15,10 +15,6 @@
 #[macro_use]
 extern crate ark_std;
 
-#[cfg(feature = "r1cs")]
-#[macro_use]
-extern crate derivative;
-
 /// Reduce an R1CS instance to a *Quadratic Arithmetic Program* instance.
 pub mod r1cs_to_qap;
 
@@ -34,9 +30,7 @@ pub mod prover;
 /// Verify proofs for the Groth16 zkSNARK construction.
 pub mod verifier;
 
-/// Constraints for the Groth16 verifier.
-#[cfg(feature = "r1cs")]
-pub mod constraints;
+pub mod link;
 
 #[cfg(test)]
 mod test;
@@ -67,7 +61,7 @@ impl<E: Pairing, QAP: R1CSToQAP> SNARK<E::ScalarField> for Groth16<E, QAP> {
         circuit: C,
         rng: &mut R,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
-        let pk = Self::generate_random_parameters_with_reduction(circuit, rng)?;
+        let pk = Self::generate_random_parameters_with_reduction(circuit, None, rng)?;
         let vk = pk.vk.clone();
 
         Ok((pk, vk))
@@ -92,7 +86,7 @@ impl<E: Pairing, QAP: R1CSToQAP> SNARK<E::ScalarField> for Groth16<E, QAP> {
         x: &[E::ScalarField],
         proof: &Self::Proof,
     ) -> Result<bool, Self::Error> {
-        Ok(Self::verify_proof(&circuit_pvk, proof, &x)?)
+        Self::verify_proof(circuit_pvk, proof, x)
     }
 }
 

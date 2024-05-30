@@ -1,11 +1,10 @@
-use ark_crypto_primitives::sponge::Absorb;
-use ark_ec::pairing::Pairing;
-use ark_ff::PrimeField;
+use crate::link::{EK, PP, VK};
+use ark_ec::pairing::{Pairing, PairingOutput};
 use ark_serialize::*;
 use ark_std::vec::Vec;
 
-/// A proof in the Groth16 SNARK.
-#[derive(Clone, Debug, PartialEq, CanonicalSerialize, CanonicalDeserialize)]
+/// A proof in the Groth16 SNARK
+#[derive(Clone, Debug, PartialEq, CanonicalSerialize, CanonicalDeserialize, Default)]
 pub struct Proof<E: Pairing> {
     /// The `A` element in `G1`.
     pub a: E::G1Affine,
@@ -13,22 +12,20 @@ pub struct Proof<E: Pairing> {
     pub b: E::G2Affine,
     /// The `C` element in `G1`.
     pub c: E::G1Affine,
-}
 
-impl<E: Pairing> Default for Proof<E> {
-    fn default() -> Self {
-        Self {
-            a: E::G1Affine::default(),
-            b: E::G2Affine::default(),
-            c: E::G1Affine::default(),
-        }
-    }
+    /// The `D` element in `G1`. Commits to a subset of private inputs of the circuit
+    pub d: E::G1Affine,
+    /// cp_{link}
+    pub link_d: E::G1Affine,
+    /// proof of commitment opening equality between `cp_{link}` and `d`
+    pub link_pi: E::G1Affine,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
 /// A verification key in the Groth16 SNARK.
-#[derive(Clone, Debug, PartialEq, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Clone, Debug, PartialEq, CanonicalSerialize, CanonicalDeserialize, Default)]
 pub struct VerifyingKey<E: Pairing> {
     /// The `alpha * G`, where `G` is the generator of `E::G1`.
     pub alpha_g1: E::G1Affine,
@@ -38,58 +35,25 @@ pub struct VerifyingKey<E: Pairing> {
     pub gamma_g2: E::G2Affine,
     /// The `delta * H`, where `H` is the generator of `E::G2`.
     pub delta_g2: E::G2Affine,
-    /// The `gamma^{-1} * (beta * a_i + alpha * b_i + c_i) * H`, where `H` is
-    /// the generator of `E::G1`.
-    pub gamma_abc_g1: Vec<E::G1Affine>,
-}
+    /// The `gamma^{-1} * (beta * a_i + alpha * b_i + c_i) * H`, where `H` is the generator of `E::G1`.
+    pub gamma_abc_g1: (Vec<E::G1Affine>, Vec<E::G1Affine>),
+    /// The element `eta*gamma^-1 * G` in `E::G1`.
+    pub eta_gamma_inv_g1: E::G1Affine,
 
-impl<E: Pairing> Default for VerifyingKey<E> {
-    fn default() -> Self {
-        Self {
-            alpha_g1: E::G1Affine::default(),
-            beta_g2: E::G2Affine::default(),
-            gamma_g2: E::G2Affine::default(),
-            delta_g2: E::G2Affine::default(),
-            gamma_abc_g1: Vec::new(),
-        }
-    }
-}
-
-impl<E> Absorb for VerifyingKey<E>
-where
-    E: Pairing,
-    E::G1Affine: Absorb,
-    E::G2Affine: Absorb,
-{
-    fn to_sponge_bytes(&self, dest: &mut Vec<u8>) {
-        self.alpha_g1.to_sponge_bytes(dest);
-        self.beta_g2.to_sponge_bytes(dest);
-        self.gamma_g2.to_sponge_bytes(dest);
-        self.delta_g2.to_sponge_bytes(dest);
-        self.gamma_abc_g1
-            .iter()
-            .for_each(|g| g.to_sponge_bytes(dest));
-    }
-
-    fn to_sponge_field_elements<F: PrimeField>(&self, dest: &mut Vec<F>) {
-        self.alpha_g1.to_sponge_field_elements(dest);
-        self.beta_g2.to_sponge_field_elements(dest);
-        self.gamma_g2.to_sponge_field_elements(dest);
-        self.delta_g2.to_sponge_field_elements(dest);
-        self.gamma_abc_g1
-            .iter()
-            .for_each(|g| g.to_sponge_field_elements(dest));
-    }
+    /// Public parameters of the Subspace Snark
+    pub link_pp: PP<E::G1Affine, E::G2Affine>,
+    /// Verification key of the Subspace Snark
+    pub link_vk: VK<E::G2Affine>,
 }
 
 /// Preprocessed verification key parameters that enable faster verification
 /// at the expense of larger size in memory.
-#[derive(Clone, Debug, PartialEq, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Clone, Debug, PartialEq, CanonicalSerialize, CanonicalDeserialize, Default)]
 pub struct PreparedVerifyingKey<E: Pairing> {
     /// The unprepared verification key.
     pub vk: VerifyingKey<E>,
     /// The element `e(alpha * G, beta * H)` in `E::GT`.
-    pub alpha_g1_beta_g2: E::TargetField,
+    pub alpha_g1_beta_g2: PairingOutput<E>,
     /// The element `- gamma * H` in `E::G2`, prepared for use in pairings.
     pub gamma_g2_neg_pc: E::G2Prepared,
     /// The element `- delta * H` in `E::G2`, prepared for use in pairings.
@@ -102,34 +66,18 @@ impl<E: Pairing> From<PreparedVerifyingKey<E>> for VerifyingKey<E> {
     }
 }
 
-impl<E: Pairing> From<VerifyingKey<E>> for PreparedVerifyingKey<E> {
-    fn from(other: VerifyingKey<E>) -> Self {
-        crate::prepare_verifying_key(&other)
-    }
-}
-
-impl<E: Pairing> Default for PreparedVerifyingKey<E> {
-    fn default() -> Self {
-        Self {
-            vk: VerifyingKey::default(),
-            alpha_g1_beta_g2: E::TargetField::default(),
-            gamma_g2_neg_pc: E::G2Prepared::default(),
-            delta_g2_neg_pc: E::G2Prepared::default(),
-        }
-    }
-}
-
+////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-/// The prover key for for the Groth16 zkSNARK.
-#[derive(Clone, Debug, PartialEq, CanonicalSerialize, CanonicalDeserialize)]
-pub struct ProvingKey<E: Pairing> {
-    /// The underlying verification key.
-    pub vk: VerifyingKey<E>,
+/// The common elements for Proving Key for with and without CP_link
+#[derive(Clone, Debug, PartialEq, CanonicalSerialize, CanonicalDeserialize, Default)]
+pub struct ProvingKeyCommon<E: Pairing> {
     /// The element `beta * G` in `E::G1`.
     pub beta_g1: E::G1Affine,
     /// The element `delta * G` in `E::G1`.
     pub delta_g1: E::G1Affine,
+    /// The element `eta*delta^-1 * G` in `E::G1`.
+    pub eta_delta_inv_g1: E::G1Affine,
     /// The elements `a_i * G` in `E::G1`.
     pub a_query: Vec<E::G1Affine>,
     /// The elements `b_i * G` in `E::G1`.
@@ -140,4 +88,17 @@ pub struct ProvingKey<E: Pairing> {
     pub h_query: Vec<E::G1Affine>,
     /// The elements `l_i * G` in `E::G1`.
     pub l_query: Vec<E::G1Affine>,
+
+    /// Commitment key of the link commitment cp_link
+    pub link_bases: Vec<E::G1Affine>,
+    /// Evaluation key of cp_{link}
+    pub link_ek: EK<E::G1Affine>,
+}
+
+/// The prover key for for the Groth16 zkSNARK.
+#[derive(Clone, Debug, PartialEq, CanonicalSerialize, CanonicalDeserialize, Default)]
+pub struct ProvingKey<E: Pairing> {
+    /// The underlying verification key.
+    pub vk: VerifyingKey<E>,
+    pub common: ProvingKeyCommon<E>,
 }

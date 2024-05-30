@@ -1,7 +1,11 @@
 use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 
-use crate::{r1cs_to_qap::R1CSToQAP, Groth16};
+use crate::{
+    link::{PESubspaceSnark, SubspaceSnark},
+    r1cs_to_qap::R1CSToQAP,
+    Groth16,
+};
 
 use super::{PreparedVerifyingKey, Proof, VerifyingKey};
 
@@ -13,33 +17,37 @@ use core::ops::{AddAssign, Neg};
 pub fn prepare_verifying_key<E: Pairing>(vk: &VerifyingKey<E>) -> PreparedVerifyingKey<E> {
     PreparedVerifyingKey {
         vk: vk.clone(),
-        alpha_g1_beta_g2: E::pairing(vk.alpha_g1, vk.beta_g2).0,
+        alpha_g1_beta_g2: E::pairing(vk.alpha_g1, vk.beta_g2),
         gamma_g2_neg_pc: vk.gamma_g2.into_group().neg().into_affine().into(),
         delta_g2_neg_pc: vk.delta_g2.into_group().neg().into_affine().into(),
     }
 }
 
 impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
-    /// Prepare proof inputs for use with [`verify_proof_with_prepared_inputs`], wrt the prepared
-    /// verification key `pvk` and instance public inputs.
+    /// Prepare proof inputs for use with [`verify_proof_with_prepared_inputs`],
+    /// wrt the prepared verification key `pvk` and instance public inputs.
     pub fn prepare_inputs(
         pvk: &PreparedVerifyingKey<E>,
         public_inputs: &[E::ScalarField],
     ) -> R1CSResult<E::G1> {
-        if (public_inputs.len() + 1) != pvk.vk.gamma_abc_g1.len() {
+        if (public_inputs.len() + 1) != pvk.vk.gamma_abc_g1.0.len() {
             return Err(SynthesisError::MalformedVerifyingKey);
         }
 
-        let mut g_ic = pvk.vk.gamma_abc_g1[0].into_group();
-        for (i, b) in public_inputs.iter().zip(pvk.vk.gamma_abc_g1.iter().skip(1)) {
+        let mut g_ic = pvk.vk.gamma_abc_g1.0[0].into_group();
+        for (i, b) in public_inputs
+            .iter()
+            .zip(pvk.vk.gamma_abc_g1.0.iter().skip(1))
+        {
             g_ic.add_assign(&b.mul_bigint(i.into_bigint()));
         }
 
         Ok(g_ic)
     }
 
-    /// Verify a Groth16 proof `proof` against the prepared verification key `pvk` and prepared public
-    /// inputs. This should be preferred over [`verify_proof`] if the instance's public inputs are
+    /// Verify a Groth16 proof `proof` against the prepared verification key
+    /// `pvk` and prepared public inputs. This should be preferred over
+    /// [`verify_proof`] if the instance's public inputs are
     /// known in advance.
     pub fn verify_proof_with_prepared_inputs(
         pvk: &PreparedVerifyingKey<E>,
@@ -49,7 +57,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         let qap = E::multi_miller_loop(
             [
                 <E::G1Affine as Into<E::G1Prepared>>::into(proof.a),
-                prepared_inputs.into_affine().into(),
+                (proof.d + prepared_inputs).into_affine().into(),
                 proof.c.into(),
             ],
             [
@@ -61,11 +69,17 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
 
         let test = E::final_exponentiation(qap).ok_or(SynthesisError::UnexpectedIdentity)?;
 
-        Ok(test.0 == pvk.alpha_g1_beta_g2)
+        Ok(test == pvk.alpha_g1_beta_g2
+            && PESubspaceSnark::<E>::verify(
+                &pvk.vk.link_pp,
+                &pvk.vk.link_vk,
+                &[proof.link_d, proof.d],
+                &proof.link_pi,
+            ))
     }
 
-    /// Verify a Groth16 proof `proof` against the prepared verification key `pvk`,
-    /// with respect to the instance `public_inputs`.
+    /// Verify a Groth16 proof `proof` against the prepared verification key
+    /// `pvk`, with respect to the instance `public_inputs`.
     pub fn verify_proof(
         pvk: &PreparedVerifyingKey<E>,
         proof: &Proof<E>,

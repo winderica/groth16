@@ -1,4 +1,8 @@
-use crate::{r1cs_to_qap::R1CSToQAP, Groth16, ProvingKey, Vec, VerifyingKey};
+use crate::{
+    link::{PESubspaceSnark, SparseMatrix, SubspaceSnark, EK, PP, VK},
+    r1cs_to_qap::R1CSToQAP,
+    Groth16, ProvingKey, ProvingKeyCommon, Vec, VerifyingKey,
+};
 use ark_ec::{pairing::Pairing, scalar_mul::BatchMulPreprocessing, CurveGroup};
 use ark_ff::{Field, UniformRand, Zero};
 use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
@@ -6,8 +10,7 @@ use ark_relations::r1cs::{
     ConstraintSynthesizer, ConstraintSystem, OptimizationGoal, Result as R1CSResult,
     SynthesisError, SynthesisMode,
 };
-use ark_std::rand::Rng;
-use ark_std::{cfg_into_iter, cfg_iter};
+use ark_std::{cfg_into_iter, cfg_iter, rand::Rng};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -18,6 +21,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     #[inline]
     pub fn generate_random_parameters_with_reduction<C>(
         circuit: C,
+        pedersen_gens: Option<Vec<E::G1Affine>>,
         rng: &mut impl Rng,
     ) -> R1CSResult<ProvingKey<E>>
     where
@@ -27,29 +31,35 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         let beta = E::ScalarField::rand(rng);
         let gamma = E::ScalarField::rand(rng);
         let delta = E::ScalarField::rand(rng);
+        let eta = E::ScalarField::rand(rng);
 
         let g1_generator = E::G1::rand(rng);
         let g2_generator = E::G2::rand(rng);
 
         Self::generate_parameters_with_qap(
             circuit,
+            pedersen_gens,
             alpha,
             beta,
             gamma,
             delta,
+            eta,
             g1_generator,
             g2_generator,
             rng,
         )
     }
 
-    /// Create parameters for a circuit, given some toxic waste, R1CS to QAP calculator and group generators
+    /// Create parameters for a circuit, given some toxic waste, R1CS to QAP
+    /// calculator and group generators
     pub fn generate_parameters_with_qap<C>(
         circuit: C,
+        pedersen_gens: Option<Vec<E::G1Affine>>,
         alpha: E::ScalarField,
         beta: E::ScalarField,
         gamma: E::ScalarField,
         delta: E::ScalarField,
+        eta: E::ScalarField,
         g1_generator: E::G1,
         g2_generator: E::G2,
         rng: &mut impl Rng,
@@ -73,8 +83,8 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         cs.finalize();
         end_timer!(lc_time);
 
-        // Following is the mapping of symbols from the Groth16 paper to this implementation
-        // l -> num_instance_variables
+        // Following is the mapping of symbols from the Groth16 paper to this
+        // implementation l -> num_instance_variables
         // m -> qap_num_variables
         // x -> t
         // t(x) - zt
@@ -82,20 +92,11 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         // v_i(x) -> b
         // w_i(x) -> c
 
-        ///////////////////////////////////////////////////////////////////////////
-        let domain_time = start_timer!(|| "Constructing evaluation domain");
-
-        let domain_size = cs.num_constraints() + cs.num_instance_variables();
-        let domain = D::new(domain_size).ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
-        let t = domain.sample_element_outside_domain(rng);
-
-        end_timer!(domain_time);
-        ///////////////////////////////////////////////////////////////////////////
-
         let reduction_time = start_timer!(|| "R1CS to QAP Instance Map with Evaluation");
-        let num_instance_variables = cs.num_instance_variables();
-        let (a, b, c, zt, qap_num_variables, m_raw) =
-            QAP::instance_map_with_evaluation::<E::ScalarField, D<E::ScalarField>>(cs, &t)?;
+        let num_instance_variables = cs.num_instance_and_commitment_variables();
+        let num_committed_variables = cs.num_committed_variables();
+        let (a, b, c, t, zt, qap_num_variables, m_raw) =
+            QAP::instance_map_with_evaluation::<E::ScalarField, D<E::ScalarField>>(cs, rng)?;
         end_timer!(reduction_time);
 
         // Compute query densities
@@ -110,15 +111,15 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         let gamma_inverse = gamma.inverse().ok_or(SynthesisError::UnexpectedIdentity)?;
         let delta_inverse = delta.inverse().ok_or(SynthesisError::UnexpectedIdentity)?;
 
-        let gamma_abc = cfg_iter!(a[..num_instance_variables])
-            .zip(&b[..num_instance_variables])
-            .zip(&c[..num_instance_variables])
+        let gamma_abc = cfg_iter!(a[..num_instance_variables + num_committed_variables])
+            .zip(&b[..num_instance_variables + num_committed_variables])
+            .zip(&c[..num_instance_variables + num_committed_variables])
             .map(|((a, b), c)| (beta * a + &(alpha * b) + c) * &gamma_inverse)
             .collect::<Vec<_>>();
 
-        let l = cfg_iter!(a[num_instance_variables..])
-            .zip(&b[num_instance_variables..])
-            .zip(&c[num_instance_variables..])
+        let l = cfg_iter!(a[num_instance_variables + num_committed_variables..])
+            .zip(&b[num_instance_variables + num_committed_variables..])
+            .zip(&c[num_instance_variables + num_committed_variables..])
             .map(|((a, b), c)| (beta * a + &(alpha * b) + c) * &delta_inverse)
             .collect::<Vec<_>>();
 
@@ -180,30 +181,74 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         // Generate R1CS verification key
         let verifying_key_time = start_timer!(|| "Generate the R1CS verification key");
         let gamma_g2 = g2_generator * &gamma;
-        let gamma_abc_g1 = g1_table.batch_mul(&gamma_abc);
+        let mut gamma_abc_g1 = g1_table.batch_mul(&gamma_abc);
+        let gamma_abc_g1_part_2 = gamma_abc_g1.split_off(num_instance_variables);
         drop(g1_table);
 
         end_timer!(verifying_key_time);
+
+        let eta_gamma_inv_g1 = g1_generator * (eta * &gamma_inverse);
+
+        let eta_delta_inv_g1 = g1_generator * (eta * &delta_inverse);
+
+        // Setup public params for the Subspace Snark
+        let link_rows = 2; // we're comparing two commitments, proof.d and proof.link_d
+        let link_cols = num_committed_variables + 2; // we have `commit_witness_count` witnesses and 1 hiding factor per row
+        let link_pp = PP::<E::G1Affine, E::G2Affine> {
+            l: link_rows,
+            t: link_cols,
+            g1: E::G1Affine::rand(rng),
+            g2: E::G2Affine::rand(rng),
+        };
+
+        let pedersen_gens = pedersen_gens.unwrap_or_else(|| {
+            E::G1::normalize_batch(
+                &(0..num_committed_variables + 1)
+                    .map(|_| E::G1::rand(rng))
+                    .collect::<Vec<_>>(),
+            )
+        });
+
+        let mut link_m = SparseMatrix::<E::G1Affine>::new(link_rows, link_cols);
+        link_m.insert_row_slice(0, 0, pedersen_gens.clone());
+        link_m.insert_row_slice(1, 0, gamma_abc_g1_part_2.clone());
+        link_m.insert_row_slice(
+            1,
+            num_committed_variables + 1,
+            vec![eta_gamma_inv_g1.into_affine()],
+        );
+
+        let (link_ek, link_vk) = PESubspaceSnark::<E>::keygen(rng, &link_pp, &link_m);
 
         let vk = VerifyingKey::<E> {
             alpha_g1: alpha_g1.into_affine(),
             beta_g2: beta_g2.into_affine(),
             gamma_g2: gamma_g2.into_affine(),
             delta_g2: delta_g2.into_affine(),
-            gamma_abc_g1,
+            gamma_abc_g1: (gamma_abc_g1, gamma_abc_g1_part_2),
+            eta_gamma_inv_g1: eta_gamma_inv_g1.into_affine(),
+
+            link_pp,
+            link_vk,
         };
 
         end_timer!(setup_time);
 
         Ok(ProvingKey {
             vk,
-            beta_g1: beta_g1.into_affine(),
-            delta_g1: delta_g1.into_affine(),
-            a_query,
-            b_g1_query,
-            b_g2_query,
-            h_query,
-            l_query,
+            common: ProvingKeyCommon {
+                beta_g1: beta_g1.into_affine(),
+                delta_g1: delta_g1.into_affine(),
+                eta_delta_inv_g1: eta_delta_inv_g1.into_affine(),
+                a_query,
+                b_g1_query,
+                b_g2_query,
+                h_query,
+                l_query,
+
+                link_ek,
+                link_bases: pedersen_gens,
+            },
         })
     }
 }

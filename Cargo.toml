@@ -24,6 +24,7 @@ ark-relations = { version = "0.4.0", default-features = false }
 ark-crypto-primitives = { version = "0.4.0", default-features = false, features = ["snark", "sponge"] }
 ark-r1cs-std = { version = "0.4.0", default-features = false, optional = true }
 
+blake2 = "0.10.6"
 tracing = { version = "0.1", default-features = false, features = [ "attributes" ], optional = true }
 derivative = { version = "2.0", features = ["use_core"], optional = true}
 
@@ -92,8 +93,8 @@ ark-mnt6-753 = { git = "https://github.com/arkworks-rs/algebra/" }
 ark-bls12-377 = { git = "https://github.com/arkworks-rs/algebra/" }
 ark-bw6-761 = { git = "https://github.com/arkworks-rs/algebra/" }
 
-ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std/" }
+ark-r1cs-std = { git = "https://github.com/winderica/r1cs-std/", branch = "cp" }
 ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives/" }
 
-ark-relations = { git = "https://github.com/arkworks-rs/snark/" }
-ark-snark = { git = "https://github.com/arkworks-rs/snark/" }
+ark-relations = { git = "https://github.com/winderica/snark/", branch = "cp" }
+ark-snark = { git = "https://github.com/winderica/snark/", branch = "cp" }
