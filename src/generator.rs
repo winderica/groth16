@@ -21,7 +21,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     #[inline]
     pub fn generate_random_parameters_with_reduction<C>(
         circuit: C,
-        pedersen_gens: Option<Vec<E::G1Affine>>,
+        pedersen_gens: Option<Vec<Vec<E::G1Affine>>>,
         rng: &mut impl Rng,
     ) -> R1CSResult<ProvingKey<E>>
     where
@@ -54,7 +54,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     /// calculator and group generators
     pub fn generate_parameters_with_qap<C>(
         circuit: C,
-        pedersen_gens: Option<Vec<E::G1Affine>>,
+        pedersen_gens: Option<Vec<Vec<E::G1Affine>>>,
         alpha: E::ScalarField,
         beta: E::ScalarField,
         gamma: E::ScalarField,
@@ -191,9 +191,17 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
 
         let eta_delta_inv_g1 = g1_generator * (eta * &delta_inverse);
 
+        let pedersen_gens = pedersen_gens.unwrap_or_else(|| {
+            vec![E::G1::normalize_batch(
+                &(0..num_committed_variables + 1)
+                    .map(|_| E::G1::rand(rng))
+                    .collect::<Vec<_>>(),
+            )]
+        });
+
         // Setup public params for the Subspace Snark
-        let link_rows = 2; // we're comparing two commitments, proof.d and proof.link_d
-        let link_cols = num_committed_variables + 2; // we have `commit_witness_count` witnesses and 1 hiding factor per row
+        let link_rows = 1 + pedersen_gens.len(); // we're comparing two commitments, proof.d and proof.link_d
+        let link_cols = num_committed_variables + link_rows; // we have `commit_witness_count` witnesses and 1 hiding factor per row
         let link_pp = PP::<E::G1Affine, E::G2Affine> {
             l: link_rows,
             t: link_cols,
@@ -201,20 +209,19 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
             g2: E::G2Affine::rand(rng),
         };
 
-        let pedersen_gens = pedersen_gens.unwrap_or_else(|| {
-            E::G1::normalize_batch(
-                &(0..num_committed_variables + 1)
-                    .map(|_| E::G1::rand(rng))
-                    .collect::<Vec<_>>(),
-            )
-        });
-
         let mut link_m = SparseMatrix::<E::G1Affine>::new(link_rows, link_cols);
-        link_m.insert_row_slice(0, 0, pedersen_gens.clone());
-        link_m.insert_row_slice(1, 0, gamma_abc_g1_part_2.clone());
+        let mut c = 0;
+        for i in 0..link_rows - 1 {
+            link_m.insert_row_slice(i, c, pedersen_gens[i][..pedersen_gens[i].len() - 1].to_vec());
+            link_m.insert_row_slice(i, num_committed_variables + i, vec![pedersen_gens[i][pedersen_gens[i].len() - 1]]);
+            c += pedersen_gens[i].len() - 1;
+        }
+        assert_eq!(num_committed_variables, c);
+
+        link_m.insert_row_slice(link_rows - 1, 0, gamma_abc_g1_part_2.clone());
         link_m.insert_row_slice(
-            1,
-            num_committed_variables + 1,
+            link_rows - 1,
+            link_cols - 1,
             vec![eta_gamma_inv_g1.into_affine()],
         );
 

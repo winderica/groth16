@@ -16,7 +16,7 @@ pub struct Proof<E: Pairing> {
     /// The `D` element in `G1`. Commits to a subset of private inputs of the circuit
     pub d: E::G1Affine,
     /// cp_{link}
-    pub link_d: E::G1Affine,
+    pub link_d: Vec<E::G1Affine>,
     /// proof of commitment opening equality between `cp_{link}` and `d`
     pub link_pi: E::G1Affine,
 }
@@ -90,7 +90,7 @@ pub struct ProvingKeyCommon<E: Pairing> {
     pub l_query: Vec<E::G1Affine>,
 
     /// Commitment key of the link commitment cp_link
-    pub link_bases: Vec<E::G1Affine>,
+    pub link_bases: Vec<Vec<E::G1Affine>>,
     /// Evaluation key of cp_{link}
     pub link_ek: EK<E::G1Affine>,
 }
