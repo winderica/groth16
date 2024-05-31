@@ -3,7 +3,6 @@
 //! and equality of committed values in multiple commitments. Note that this SNARK requires a trusted
 //! setup as the key generation creates a trapdoor.
 
-use crate::link::error::LinkError;
 use crate::link::utils::*;
 use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
 use ark_ff::{UniformRand, Zero};
@@ -117,7 +116,7 @@ impl<PE: Pairing> SubspaceSnark for PESubspaceSnark<PE> {
 
         let p = SparseLinAlgebra::<PE>::sparse_vector_matrix_mult(&k, m);
 
-        let c = scale_vector::<PE>(&a, &k);
+        let c = scale_vector::<PE>(a, &k);
         let ek = EK::<PE::G1Affine> { p };
         let vk = VK::<PE::G2Affine> {
             c: multiples_of_g::<PE::G2Affine>(&pp.g2, &c),

@@ -48,7 +48,7 @@ pub trait R1CSToQAP {
         prover: ConstraintSystemRef<F>,
     ) -> Result<Vec<F>, SynthesisError> {
         let matrices = prover.to_matrices().unwrap();
-        let num_inputs = prover.num_instance_and_commitment_variables();
+        let num_inputs = prover.num_instance_variables();
         let num_constraints = prover.num_constraints();
 
         let cs = prover.borrow().unwrap();
@@ -56,7 +56,6 @@ pub trait R1CSToQAP {
 
         let full_assignment = [
             prover.instance_assignment.as_slice(),
-            prover.commitment_assignment.as_slice(),
             prover.committed_assignment.as_slice(),
             prover.witness_assignment.as_slice(),
         ]
@@ -99,7 +98,7 @@ impl R1CSToQAP for LibsnarkReduction {
         rng: &mut impl Rng,
     ) -> R1CSResult<(Vec<F>, Vec<F>, Vec<F>, F, F, usize, usize)> {
         let matrices = cs.to_matrices().unwrap();
-        let domain_size = cs.num_constraints() + cs.num_instance_and_commitment_variables();
+        let domain_size = cs.num_constraints() + cs.num_instance_variables();
         let domain = D::new(domain_size).ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
         let domain_size = domain.size();
 
@@ -112,7 +111,7 @@ impl R1CSToQAP for LibsnarkReduction {
         let u = domain.evaluate_all_lagrange_coefficients(t);
         end_timer!(coefficients_time);
 
-        let qap_num_variables = (cs.num_instance_and_commitment_variables() - 1)
+        let qap_num_variables = (cs.num_instance_variables() - 1)
             + cs.num_witness_variables()
             + cs.num_committed_variables();
 
@@ -122,7 +121,7 @@ impl R1CSToQAP for LibsnarkReduction {
 
         {
             let start = 0;
-            let end = cs.num_instance_and_commitment_variables();
+            let end = cs.num_instance_variables();
             let num_constraints = cs.num_constraints();
             a[start..end].copy_from_slice(&u[(start + num_constraints)..(end + num_constraints)]);
         }

@@ -93,7 +93,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         // w_i(x) -> c
 
         let reduction_time = start_timer!(|| "R1CS to QAP Instance Map with Evaluation");
-        let num_instance_variables = cs.num_instance_and_commitment_variables();
+        let num_instance_variables = cs.num_instance_variables();
         let num_committed_variables = cs.num_committed_variables();
         let (a, b, c, t, zt, qap_num_variables, m_raw) =
             QAP::instance_map_with_evaluation::<E::ScalarField, D<E::ScalarField>>(cs, rng)?;
