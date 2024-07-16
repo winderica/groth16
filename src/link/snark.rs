@@ -1,7 +1,8 @@
 //! zkSNARK for Linear Subspaces as defined in appendix D of the paper.
-//! Use to prove knowledge of openings of multiple Pedersen commitments. Can also prove knowledge
-//! and equality of committed values in multiple commitments. Note that this SNARK requires a trusted
-//! setup as the key generation creates a trapdoor.
+//! Use to prove knowledge of openings of multiple Pedersen commitments. Can
+//! also prove knowledge and equality of committed values in multiple
+//! commitments. Note that this SNARK requires a trusted setup as the key
+//! generation creates a trapdoor.
 
 use crate::link::utils::*;
 use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
@@ -53,70 +54,47 @@ pub struct VK<G2: Clone + Default + CanonicalSerialize + CanonicalDeserialize> {
     pub a: G2,
 }
 
-pub trait SubspaceSnark {
-    type KMtx;
-    type InVec;
-    type OutVec;
-
-    type PP;
-
-    type EK;
-    type VK;
-
-    type Proof;
-
-    fn keygen<R: Rng>(
-        rng: &mut R,
-        pp: &Self::PP,
-        m: &Self::KMtx,
-    ) -> (Self::EK, Self::VK);
-    fn prove(pp: &Self::PP, ek: &Self::EK, w: &[Self::InVec]) -> Self::Proof;
-    fn verify(
-        pp: &Self::PP,
-        vk: &Self::VK,
-        y: &[Self::OutVec],
-        pi: &Self::Proof,
-    ) -> bool;
-}
-
 pub struct PESubspaceSnark<PE: Pairing> {
     pairing_engine_type: PhantomData<PE>,
 }
 
 // NB: Now the system is for y = Mx
-impl<PE: Pairing> SubspaceSnark for PESubspaceSnark<PE> {
-    type KMtx = SparseMatrix<PE::G1Affine>;
-    type InVec = PE::ScalarField;
-    type OutVec = PE::G1Affine;
-
-    type PP = PP<PE::G1Affine, PE::G2Affine>;
-
-    type EK = EK<PE::G1Affine>;
-    type VK = VK<PE::G2Affine>;
-
-    type Proof = PE::G1Affine;
-
-    /// Matrix should be such that a column will have more than 1 non-zero item only if those values
-    /// are equal. Eg for matrix below, h2 and h3 commit to same value
-    /// h1, 0, 0, 0
+impl<PE: Pairing> PESubspaceSnark<PE> {
+    /// Matrix should be such that a column will have more than 1 non-zero item
+    /// only if those values are equal. Eg for matrix below, h2 and h3
+    /// commit to same value h1, 0, 0, 0
     /// 0, h2, 0, 0
     /// 0, h3, h4, 0
-    fn keygen<R: Rng>(
+    pub fn keygen<R: Rng>(
         rng: &mut R,
-        pp: &Self::PP,
-        m: &Self::KMtx,
-    ) -> (Self::EK, Self::VK) {
-        // `k` is the trapdoor
-        let mut k: Vec<PE::ScalarField> = Vec::with_capacity(pp.l);
+        pp: &PP<PE::G1Affine, PE::G2Affine>,
+        m: &[(usize, &[PE::G1Affine], usize, PE::G1Affine)],
+    ) -> (EK<PE::G1Affine>, VK<PE::G2Affine>) {
+        // `t` is the trapdoor
+        let mut t: Vec<PE::ScalarField> = Vec::with_capacity(pp.l);
         for _ in 0..pp.l {
-            k.push(PE::ScalarField::rand(rng));
+            t.push(PE::ScalarField::rand(rng));
         }
 
         let a = PE::ScalarField::rand(rng);
 
-        let p = SparseLinAlgebra::<PE>::sparse_vector_matrix_mult(&k, m);
+        let p = PE::G1::normalize_batch(
+            &cfg_into_iter!(0..pp.t)
+                .map(|i| {
+                    m.iter().enumerate().map(|(u, (j, v, k, r))| {
+                        if i >= *j && i < *j + v.len() {
+                            v[i - j].mul(&t[u])
+                        } else if i == *k {
+                            r.mul(&t[u])
+                        } else {
+                            PE::G1::zero()
+                        }
+                    }).sum::<PE::G1>()
+                })
+                .collect::<Vec<_>>(),
+        );
 
-        let c = scale_vector::<PE>(a, &k);
+        let c = scale_vector::<PE>(a, &t);
         let ek = EK::<PE::G1Affine> { p };
         let vk = VK::<PE::G2Affine> {
             c: multiples_of_g::<PE::G2Affine>(&pp.g2, &c),
@@ -125,16 +103,20 @@ impl<PE: Pairing> SubspaceSnark for PESubspaceSnark<PE> {
         (ek, vk)
     }
 
-    fn prove(pp: &Self::PP, ek: &Self::EK, w: &[Self::InVec]) -> Self::Proof {
+    pub fn prove(
+        pp: &PP<PE::G1Affine, PE::G2Affine>,
+        ek: &EK<PE::G1Affine>,
+        w: &[PE::ScalarField],
+    ) -> PE::G1Affine {
         assert!(pp.t >= w.len());
         inner_product::<PE>(w, &ek.p)
     }
 
-    fn verify(
-        pp: &Self::PP,
-        vk: &Self::VK,
-        x: &[Self::OutVec],
-        pi: &Self::Proof,
+    pub fn verify(
+        pp: &PP<PE::G1Affine, PE::G2Affine>,
+        vk: &VK<PE::G2Affine>,
+        x: &[PE::G1Affine],
+        pi: &PE::G1Affine,
     ) -> bool {
         assert_eq!(pp.l, x.len());
         assert!(vk.c.len() >= x.len());

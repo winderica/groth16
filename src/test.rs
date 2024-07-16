@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{prepare_verifying_key, Groth16};
 use ark_crypto_primitives::snark::{CircuitSpecificSetupSNARK, SNARK};
 use ark_ec::{pairing::Pairing, CurveGroup, VariableBaseMSM};
@@ -63,9 +65,9 @@ where
 {
     let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(test_rng().next_u64());
 
-    let generators = std::iter::repeat_with(|| E::G1Affine::rand(&mut rng))
-        .take(2)
-        .collect::<Vec<_>>();
+    let generators = vec![E::G1Affine::rand(&mut rng), E::G1Affine::rand(&mut rng)];
+    let g = &generators[..1];
+    let r = E::G1Affine::rand(&mut rng);
 
     let pk = Groth16::<E>::generate_random_parameters_with_reduction(
         MySillyCircuit {
@@ -76,11 +78,11 @@ where
             e: None,
             f: None,
         },
-        Some(vec![
-            generators.clone(),
-            generators.clone(),
-            generators.clone(),
-        ]),
+        vec![
+            (&g, r),
+            (&g, r),
+            (&g, r),
+        ],
         &mut rng,
     )
     .unwrap();
@@ -96,7 +98,7 @@ where
         let f = E::ScalarField::rand(&mut rng);
         let g = (a + b + c) * (d + e + f);
 
-        let proof = Groth16::<E>::prove(
+        let (proof, _) = Groth16::<E>::prove(
             &pk,
             MySillyCircuit {
                 a: Some(a),
@@ -110,20 +112,18 @@ where
         )
         .unwrap();
 
-        assert_eq!(
-            proof.link_d,
-            vec![
-                E::G1::msm(&generators, &[d, E::ScalarField::zero()])
-                    .unwrap()
-                    .into_affine(),
-                E::G1::msm(&generators, &[e, E::ScalarField::zero()])
-                    .unwrap()
-                    .into_affine(),
-                    E::G1::msm(&generators, &[f, E::ScalarField::zero()])
-                    .unwrap()
-                    .into_affine()
-            ]
-        );
+        let link_d = vec![
+            E::G1::msm(&generators, &[d, E::ScalarField::zero()])
+                .unwrap()
+                .into_affine(),
+            E::G1::msm(&generators, &[e, E::ScalarField::zero()])
+                .unwrap()
+                .into_affine(),
+                E::G1::msm(&generators, &[f, E::ScalarField::zero()])
+                .unwrap()
+                .into_affine()
+        ];
+        let proof = (proof, link_d);
 
         assert!(Groth16::<E>::verify_with_processed_vk(&pvk, &[g], &proof).unwrap());
         assert!(!Groth16::<E>::verify_with_processed_vk(&pvk, &[a], &proof).unwrap());
@@ -140,14 +140,25 @@ mod bls12_377 {
     }
 }
 
-mod bw6_761 {
+mod bn254 {
     use super::test_prove_and_verify;
 
-    use ark_bw6_761::BW6_761;
+    use ark_bn254::Bn254;
 
     #[test]
     fn prove_and_verify() {
-        test_prove_and_verify::<BW6_761>(5);
+        test_prove_and_verify::<Bn254>(5);
+    }
+}
+
+mod bls12_381 {
+    use super::test_prove_and_verify;
+
+    use ark_bls12_381::Bls12_381;
+
+    #[test]
+    fn prove_and_verify() {
+        test_prove_and_verify::<Bls12_381>(5);
     }
 }
 

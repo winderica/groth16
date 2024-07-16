@@ -2,7 +2,7 @@ use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 
 use crate::{
-    link::{PESubspaceSnark, SubspaceSnark},
+    link::{PESubspaceSnark},
     r1cs_to_qap::R1CSToQAP,
     Groth16,
 };
@@ -51,7 +51,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     /// known in advance.
     pub fn verify_proof_with_prepared_inputs(
         pvk: &PreparedVerifyingKey<E>,
-        proof: &Proof<E>,
+        (proof, link_d): &(Proof<E>, Vec<E::G1Affine>),
         prepared_inputs: &E::G1,
     ) -> R1CSResult<bool> {
         let qap = E::multi_miller_loop(
@@ -73,7 +73,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
             && PESubspaceSnark::<E>::verify(
                 &pvk.vk.link_pp,
                 &pvk.vk.link_vk,
-                &[proof.link_d.clone(), vec![proof.d]].concat(),
+                &[link_d.clone(), vec![proof.d]].concat(),
                 &proof.link_pi,
             ))
     }
@@ -82,7 +82,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     /// `pvk`, with respect to the instance `public_inputs`.
     pub fn verify_proof(
         pvk: &PreparedVerifyingKey<E>,
-        proof: &Proof<E>,
+        proof: &(Proof<E>, Vec<E::G1Affine>),
         public_inputs: &[E::ScalarField],
     ) -> R1CSResult<bool> {
         let prepared_inputs = Self::prepare_inputs(pvk, public_inputs)?;

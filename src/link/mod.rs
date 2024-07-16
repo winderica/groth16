@@ -6,7 +6,7 @@ pub use utils::*;
 
 #[cfg(test)]
 mod test {
-    use super::{PESubspaceSnark, SparseMatrix, SubspaceSnark, PP};
+    use super::{PESubspaceSnark, PP};
     use ark_bls12_381::{Bls12_381, Fr, G1Affine, G1Projective, G2Affine, G2Projective};
     use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
     use ark_ff::{One, PrimeField, UniformRand, Zero};
@@ -22,8 +22,8 @@ mod test {
 
         let mut pp = PP::<G1Affine, G2Affine> { l: 1, t: 2, g1, g2 };
 
-        let mut m = SparseMatrix::new(1, 2);
-        m.insert_row_slice(0, 0, vec![g1, g1]);
+        let g = vec![g1];
+        let m = vec![(0, &g[..], 1, g1)];
 
         let x: Vec<Fr> = vec![Fr::one(), Fr::zero()];
 
@@ -51,8 +51,8 @@ mod test {
 
         let h1 = G1Projective::rand(&mut rng).into_affine();
         let h2 = G1Projective::rand(&mut rng).into_affine();
-        let mut m = SparseMatrix::new(1, 2);
-        m.insert_row_slice(0, 0, vec![h1, h2]);
+        let g = vec![h1];
+        let m = vec![(0, &g[..], 1, h2)];
 
         let two = Fr::one() + Fr::one();
         let three = Fr::one() + two;
@@ -62,7 +62,8 @@ mod test {
         // Incorrect witness
         let w_bad: Vec<Fr> = vec![Fr::one(), Fr::one()];
 
-        // y is a Pedersen-like commitment to `two` and `three` and bases `h1` and `h2`, i.e `y = h1 * two + h2 * three`
+        // y is a Pedersen-like commitment to `two` and `three` and bases `h1` and `h2`,
+        // i.e `y = h1 * two + h2 * three`
         let y: Vec<G1Affine> = vec![h1
             .into_group()
             .mul_bigint(two.into_bigint())
@@ -80,7 +81,8 @@ mod test {
 
     #[test]
     fn test_same_value_different_bases() {
-        // Given `bases1 = [h1, h2]` and `bases2 = [h3, h4]`, prove knowledge of `x1, x2 x3` in `y0 = h1 * x0 + h2 * x2` and `y1 = h3 * x1 + h4 * x2`
+        // Given `bases1 = [h1, h2]` and `bases2 = [h3, h4]`, prove knowledge of `x1, x2
+        // x3` in `y0 = h1 * x0 + h2 * x2` and `y1 = h3 * x1 + h4 * x2`
 
         let mut rng = StdRng::seed_from_u64(0u64);
         let g1 = G1Projective::rand(&mut rng).into_affine();
@@ -96,10 +98,10 @@ mod test {
             .iter()
             .map(|p| p.into_affine())
             .collect::<Vec<_>>();
-        let mut m = SparseMatrix::new(2, 3);
-        m.insert_row_slice(0, 0, vec![bases1[0]]);
-        m.insert_row_slice(0, 2, vec![bases1[1]]);
-        m.insert_row_slice(1, 1, vec![bases2[0], bases2[1]]);
+        let m = vec![
+            (0, &bases1[0..1], 2, bases1[1]),
+            (1, &bases2[0..1], 2, bases2[1]),
+        ];
 
         let w: Vec<Fr> = vec![Fr::rand(&mut rng), Fr::rand(&mut rng), Fr::rand(&mut rng)];
 
@@ -122,7 +124,9 @@ mod test {
 
     #[test]
     fn test_some_vals_equal() {
-        // Given `bases1 = [h1, h2, h3]` and `bases2 = [h4, h5, h6]`, prove knowledge of `x1, x2 x3, x4` in `y0 = h1 * x0 + h2 * x2 + h3 * x3` and `y1 = h4 * x1 + h5 * x2 + h6 * x4`
+        // Given `bases1 = [h1, h2, h3]` and `bases2 = [h4, h5, h6]`, prove knowledge of
+        // `x1, x2 x3, x4` in `y0 = h1 * x0 + h2 * x2 + h3 * x3` and `y1 = h4 * x1 + h5
+        // * x2 + h6 * x4`
 
         let mut rng = StdRng::seed_from_u64(0u64);
         let g1 = G1Projective::rand(&mut rng).into_affine();
@@ -149,10 +153,10 @@ mod test {
         .map(|p| p.into_affine())
         .collect::<Vec<_>>();
 
-        let mut m = SparseMatrix::new(l, t);
-        m.insert_row_slice(0, 0, bases1.clone());
-        m.insert_row_slice(1, 0, bases2[0..2].to_vec());
-        m.insert_row_slice(1, 3, bases2[2..].to_vec());
+        let m = vec![
+            (0, &bases1[0..2], 2, bases1[2]),
+            (0, &bases2[0..2], 3, bases2[2]),
+        ];
 
         let w: Vec<Fr> = vec![
             Fr::rand(&mut rng),

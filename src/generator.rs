@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use crate::{
-    link::{PESubspaceSnark, SparseMatrix, SubspaceSnark, EK, PP, VK},
+    link::{PESubspaceSnark, EK, PP, VK},
     r1cs_to_qap::R1CSToQAP,
     Groth16, ProvingKey, ProvingKeyCommon, Vec, VerifyingKey,
 };
@@ -21,7 +23,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     #[inline]
     pub fn generate_random_parameters_with_reduction<C>(
         circuit: C,
-        pedersen_gens: Option<Vec<Vec<E::G1Affine>>>,
+        pedersen_gens: Vec<(&[E::G1Affine], E::G1Affine)>,
         rng: &mut impl Rng,
     ) -> R1CSResult<ProvingKey<E>>
     where
@@ -54,7 +56,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     /// calculator and group generators
     pub fn generate_parameters_with_qap<C>(
         circuit: C,
-        pedersen_gens: Option<Vec<Vec<E::G1Affine>>>,
+        pedersen_gens: Vec<(&[E::G1Affine], E::G1Affine)>,
         alpha: E::ScalarField,
         beta: E::ScalarField,
         gamma: E::ScalarField,
@@ -187,17 +189,9 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
 
         end_timer!(verifying_key_time);
 
-        let eta_gamma_inv_g1 = g1_generator * (eta * &gamma_inverse);
+        let eta_gamma_inv_g1 = (g1_generator * (eta * &gamma_inverse)).into_affine();
 
-        let eta_delta_inv_g1 = g1_generator * (eta * &delta_inverse);
-
-        let pedersen_gens = pedersen_gens.unwrap_or_else(|| {
-            vec![E::G1::normalize_batch(
-                &(0..num_committed_variables + 1)
-                    .map(|_| E::G1::rand(rng))
-                    .collect::<Vec<_>>(),
-            )]
-        });
+        let eta_delta_inv_g1 = (g1_generator * (eta * &delta_inverse)).into_affine();
 
         // Setup public params for the Subspace Snark
         let link_rows = 1 + pedersen_gens.len(); // we're comparing two commitments, proof.d and proof.link_d
@@ -209,21 +203,14 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
             g2: E::G2Affine::rand(rng),
         };
 
-        let mut link_m = SparseMatrix::<E::G1Affine>::new(link_rows, link_cols);
+        let mut link_m = vec![];
         let mut c = 0;
-        for i in 0..link_rows - 1 {
-            link_m.insert_row_slice(i, c, pedersen_gens[i][..pedersen_gens[i].len() - 1].to_vec());
-            link_m.insert_row_slice(i, num_committed_variables + i, vec![pedersen_gens[i][pedersen_gens[i].len() - 1]]);
-            c += pedersen_gens[i].len() - 1;
+        for (i, (g, r)) in pedersen_gens.iter().enumerate() {
+            link_m.push((c, &g[..], num_committed_variables + i, *r));
+            c += g.len();
         }
         assert_eq!(num_committed_variables, c);
-
-        link_m.insert_row_slice(link_rows - 1, 0, gamma_abc_g1_part_2.clone());
-        link_m.insert_row_slice(
-            link_rows - 1,
-            link_cols - 1,
-            vec![eta_gamma_inv_g1.into_affine()],
-        );
+        link_m.push((0, &gamma_abc_g1_part_2, link_cols - 1, eta_gamma_inv_g1));
 
         let (link_ek, link_vk) = PESubspaceSnark::<E>::keygen(rng, &link_pp, &link_m);
 
@@ -233,7 +220,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
             gamma_g2: gamma_g2.into_affine(),
             delta_g2: delta_g2.into_affine(),
             gamma_abc_g1: (gamma_abc_g1, gamma_abc_g1_part_2),
-            eta_gamma_inv_g1: eta_gamma_inv_g1.into_affine(),
+            eta_gamma_inv_g1,
 
             link_pp,
             link_vk,
@@ -246,7 +233,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
             common: ProvingKeyCommon {
                 beta_g1: beta_g1.into_affine(),
                 delta_g1: delta_g1.into_affine(),
-                eta_delta_inv_g1: eta_delta_inv_g1.into_affine(),
+                eta_delta_inv_g1,
                 a_query,
                 b_g1_query,
                 b_g2_query,
@@ -254,7 +241,6 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
                 l_query,
 
                 link_ek,
-                link_bases: pedersen_gens,
             },
         })
     }

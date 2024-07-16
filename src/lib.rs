@@ -53,7 +53,7 @@ pub struct Groth16<E: Pairing, QAP: R1CSToQAP = LibsnarkReduction> {
 impl<E: Pairing, QAP: R1CSToQAP> SNARK<E::ScalarField> for Groth16<E, QAP> {
     type ProvingKey = ProvingKey<E>;
     type VerifyingKey = VerifyingKey<E>;
-    type Proof = Proof<E>;
+    type Proof = (Proof<E>, Vec<E::G1Affine>);
     type ProcessedVerifyingKey = PreparedVerifyingKey<E>;
     type Error = SynthesisError;
 
@@ -61,7 +61,7 @@ impl<E: Pairing, QAP: R1CSToQAP> SNARK<E::ScalarField> for Groth16<E, QAP> {
         circuit: C,
         rng: &mut R,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
-        let pk = Self::generate_random_parameters_with_reduction(circuit, None, rng)?;
+        let pk = Self::generate_random_parameters_with_reduction(circuit, vec![], rng)?;
         let vk = pk.vk.clone();
 
         Ok((pk, vk))

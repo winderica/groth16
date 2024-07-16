@@ -1,5 +1,5 @@
 use crate::{
-    link::{PESubspaceSnark, SubspaceSnark, EK, PP},
+    link::{PESubspaceSnark, EK, PP},
     r1cs_to_qap::R1CSToQAP,
     Groth16, Proof, ProvingKey, VerifyingKey,
 };
@@ -114,16 +114,20 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         g_d += vk.eta_gamma_inv_g1 * v;
         end_timer!(d_acc_time);
 
-        let mut c = 0;
-        let g_d_links = link_v.iter().enumerate().map(|(i, r)| {
-            let r = E::G1::msm_bigint(
-                &pk.link_bases[i][0..pk.link_bases[i].len() - 1],
-                &committed_bigint[c..c + pk.link_bases[i].len() - 1],
-            ) + pk.link_bases[i][pk.link_bases[i].len() - 1] * r;
-            c += pk.link_bases[i].len() - 1;
-            r
-        }).collect::<Vec<_>>();
-        let g_d_links = E::G1::normalize_batch(&g_d_links);
+        // let mut c = 0;
+        // let g_d_links = link_v
+        //     .iter()
+        //     .enumerate()
+        //     .map(|(i, r)| {
+        //         let r = E::G1::msm_bigint(
+        //             &pk.link_bases[i].0,
+        //             &committed_bigint[c..c + pk.link_bases[i].0.len()],
+        //         ) + pk.link_bases[i].1 * r;
+        //         c += pk.link_bases[i].0.len();
+        //         r
+        //     })
+        //     .collect::<Vec<_>>();
+        // let g_d_links = E::G1::normalize_batch(&g_d_links);
 
         let mut ss_snark_witness = committed_assignment.to_vec();
         ss_snark_witness.extend_from_slice(link_v);
@@ -140,7 +144,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
             c: g_c.into_affine(),
             d: g_d.into_affine(),
 
-            link_d: g_d_links,
+            // link_d: g_d_links,
             link_pi,
         })
     }
@@ -153,18 +157,21 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         circuit: C,
         pk: &ProvingKey<E>,
         rng: &mut impl Rng,
-    ) -> R1CSResult<Proof<E>>
+    ) -> R1CSResult<(Proof<E>, Vec<E::G1Affine>)>
     where
         C: ConstraintSynthesizer<E::ScalarField>,
     {
         let r = E::ScalarField::rand(rng);
         let s = E::ScalarField::rand(rng);
         let v = E::ScalarField::zero(); // !TODO!
-        let link_v = (0..pk.common.link_bases.len())
+        let link_v = (0..pk.vk.link_pp.l - 1)
             .map(|_| E::ScalarField::zero())
             .collect::<Vec<_>>(); // !TODO!
 
-        Self::create_proof_with_reduction(circuit, pk, r, s, v, &link_v)
+        Ok((
+            Self::create_proof_with_reduction(circuit, pk, r, s, v, &link_v)?,
+            vec![],
+        ))
     }
 
     /// Create a Groth16 proof using randomness `r` and `s` and the provided
