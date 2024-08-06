@@ -1,12 +1,6 @@
 //! Utils for matrix and vector operations
 
 use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup, ScalarMul, VariableBaseMSM};
-use ark_ff::Zero;
-use ark_std::{
-    marker::PhantomData,
-    ops::{AddAssign, Mul},
-    vec,
-};
 use rayon::prelude::*;
 
 /// MSM between a scalar vector and a G1 vector

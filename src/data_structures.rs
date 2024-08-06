@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::link::{EK, PP, VK};
 use ark_ec::pairing::{Pairing, PairingOutput};
 use ark_serialize::*;
@@ -15,7 +13,8 @@ pub struct Proof<E: Pairing> {
     /// The `C` element in `G1`.
     pub c: E::G1Affine,
 
-    /// The `D` element in `G1`. Commits to a subset of private inputs of the circuit
+    /// The `D` element in `G1`. Commits to a subset of private inputs of the
+    /// circuit
     pub d: E::G1Affine,
     /// cp_{link}
     // pub link_d: Vec<E::G1Affine>,
@@ -23,7 +22,6 @@ pub struct Proof<E: Pairing> {
     pub link_pi: E::G1Affine,
 }
 
-////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
 /// A verification key in the Groth16 SNARK.
@@ -37,7 +35,8 @@ pub struct VerifyingKey<E: Pairing> {
     pub gamma_g2: E::G2Affine,
     /// The `delta * H`, where `H` is the generator of `E::G2`.
     pub delta_g2: E::G2Affine,
-    /// The `gamma^{-1} * (beta * a_i + alpha * b_i + c_i) * H`, where `H` is the generator of `E::G1`.
+    /// The `gamma^{-1} * (beta * a_i + alpha * b_i + c_i) * H`, where `H` is
+    /// the generator of `E::G1`.
     pub gamma_abc_g1: (Vec<E::G1Affine>, Vec<E::G1Affine>),
     /// The element `eta*gamma^-1 * G` in `E::G1`.
     pub eta_gamma_inv_g1: E::G1Affine,
@@ -68,7 +67,6 @@ impl<E: Pairing> From<PreparedVerifyingKey<E>> for VerifyingKey<E> {
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
 /// The common elements for Proving Key for with and without CP_link

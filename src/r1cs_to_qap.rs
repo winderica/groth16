@@ -1,10 +1,11 @@
 use ark_ff::{One, PrimeField, Zero};
 use ark_poly::EvaluationDomain;
-use ark_std::{cfg_into_iter, cfg_iter, cfg_iter_mut, end_timer, start_timer, vec};
-use ark_std::rand::Rng;
+use ark_std::{cfg_into_iter, cfg_iter, cfg_iter_mut, end_timer, rand::Rng, start_timer, vec};
 
-use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystemRef, Result as R1CSResult, SynthesisError};
-use core::ops::{AddAssign, Deref};
+use ark_relations::r1cs::{
+    ConstraintMatrices, ConstraintSystemRef, Result as R1CSResult, SynthesisError,
+};
+use core::ops::AddAssign;
 
 use rayon::prelude::*;
 
@@ -36,14 +37,16 @@ where
 /// Computes instance and witness reductions from R1CS to
 /// Quadratic Arithmetic Programs (QAPs).
 pub trait R1CSToQAP {
-    /// Computes a QAP instance corresponding to the R1CS instance defined by `cs`.
+    /// Computes a QAP instance corresponding to the R1CS instance defined by
+    /// `cs`.
     fn instance_map_with_evaluation<F: PrimeField, D: EvaluationDomain<F>>(
         cs: ConstraintSystemRef<F>,
         rng: &mut impl Rng,
     ) -> Result<(Vec<F>, Vec<F>, Vec<F>, F, F, usize, usize), SynthesisError>;
 
     #[inline]
-    /// Computes a QAP witness corresponding to the R1CS witness defined by `cs`.
+    /// Computes a QAP witness corresponding to the R1CS witness defined by
+    /// `cs`.
     fn witness_map<F: PrimeField, D: EvaluationDomain<F>>(
         prover: ConstraintSystemRef<F>,
     ) -> Result<Vec<F>, SynthesisError> {
@@ -52,12 +55,11 @@ pub trait R1CSToQAP {
         let num_constraints = prover.num_constraints();
 
         let cs = prover.borrow().unwrap();
-        let prover = cs.deref();
 
         let full_assignment = [
-            prover.instance_assignment.as_slice(),
-            prover.committed_assignment.as_slice(),
-            prover.witness_assignment.as_slice(),
+            cs.instance_assignment.as_slice(),
+            cs.committed_assignment.as_slice(),
+            cs.witness_assignment.as_slice(),
         ]
         .concat();
 
@@ -69,7 +71,8 @@ pub trait R1CSToQAP {
         )
     }
 
-    /// Computes a QAP witness corresponding to the R1CS witness defined by `cs`.
+    /// Computes a QAP witness corresponding to the R1CS witness defined by
+    /// `cs`.
     fn witness_map_from_matrices<F: PrimeField, D: EvaluationDomain<F>>(
         matrices: &ConstraintMatrices<F>,
         num_inputs: usize,

@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use crate::{prepare_verifying_key, Groth16};
-use ark_crypto_primitives::snark::{CircuitSpecificSetupSNARK, SNARK};
+use ark_crypto_primitives::snark::SNARK;
 use ark_ec::{pairing::Pairing, CurveGroup, VariableBaseMSM};
 use ark_ff::Field;
 use ark_relations::{
@@ -78,11 +76,7 @@ where
             e: None,
             f: None,
         },
-        vec![
-            (&g, r),
-            (&g, r),
-            (&g, r),
-        ],
+        vec![(&g, r), (&g, r), (&g, r)],
         &mut rng,
     )
     .unwrap();
@@ -119,9 +113,9 @@ where
             E::G1::msm(&generators, &[e, E::ScalarField::zero()])
                 .unwrap()
                 .into_affine(),
-                E::G1::msm(&generators, &[f, E::ScalarField::zero()])
+            E::G1::msm(&generators, &[f, E::ScalarField::zero()])
                 .unwrap()
-                .into_affine()
+                .into_affine(),
         ];
         let proof = (proof, link_d);
 

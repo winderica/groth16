@@ -1,14 +1,9 @@
-use crate::{
-    link::{PESubspaceSnark, EK, PP},
-    r1cs_to_qap::R1CSToQAP,
-    Groth16, Proof, ProvingKey, VerifyingKey,
-};
+use crate::{link::PESubspaceSnark, r1cs_to_qap::R1CSToQAP, Groth16, Proof, ProvingKey};
 use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup, VariableBaseMSM};
-use ark_ff::{Field, PrimeField, UniformRand, Zero};
+use ark_ff::{PrimeField, UniformRand, Zero};
 use ark_poly::GeneralEvaluationDomain;
 use ark_relations::r1cs::{
-    ConstraintMatrices, ConstraintSynthesizer, ConstraintSystem, OptimizationGoal,
-    Result as R1CSResult,
+    ConstraintSynthesizer, ConstraintSystem, OptimizationGoal, Result as R1CSResult,
 };
 use ark_std::{
     cfg_into_iter, cfg_iter,

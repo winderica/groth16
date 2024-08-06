@@ -1,17 +1,13 @@
-use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
-use ark_ff::PrimeField;
+use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup, VariableBaseMSM};
 
-use crate::{
-    link::{PESubspaceSnark},
-    r1cs_to_qap::R1CSToQAP,
-    Groth16,
-};
+use crate::{link::PESubspaceSnark, r1cs_to_qap::R1CSToQAP, Groth16};
 
 use super::{PreparedVerifyingKey, Proof, VerifyingKey};
 
 use ark_relations::r1cs::{Result as R1CSResult, SynthesisError};
+use ark_std::One;
 
-use core::ops::{AddAssign, Neg};
+use core::ops::Neg;
 
 /// Prepare the verifying key `vk` for use in proof verification.
 pub fn prepare_verifying_key<E: Pairing>(vk: &VerifyingKey<E>) -> PreparedVerifyingKey<E> {
@@ -30,19 +26,13 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         pvk: &PreparedVerifyingKey<E>,
         public_inputs: &[E::ScalarField],
     ) -> R1CSResult<E::G1> {
-        if (public_inputs.len() + 1) != pvk.vk.gamma_abc_g1.0.len() {
+        let mut public_inputs = public_inputs.to_vec();
+        public_inputs.insert(0, E::ScalarField::one());
+        if public_inputs.len() != pvk.vk.gamma_abc_g1.0.len() {
             return Err(SynthesisError::MalformedVerifyingKey);
         }
 
-        let mut g_ic = pvk.vk.gamma_abc_g1.0[0].into_group();
-        for (i, b) in public_inputs
-            .iter()
-            .zip(pvk.vk.gamma_abc_g1.0.iter().skip(1))
-        {
-            g_ic.add_assign(&b.mul_bigint(i.into_bigint()));
-        }
-
-        Ok(g_ic)
+        Ok(E::G1::msm_unchecked(&pvk.vk.gamma_abc_g1.0, &public_inputs))
     }
 
     /// Verify a Groth16 proof `proof` against the prepared verification key

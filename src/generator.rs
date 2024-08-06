@@ -1,13 +1,11 @@
-use std::sync::Arc;
-
 use crate::{
-    link::{PESubspaceSnark, EK, PP, VK},
+    link::{PESubspaceSnark, PP},
     r1cs_to_qap::R1CSToQAP,
     Groth16, ProvingKey, ProvingKeyCommon, Vec, VerifyingKey,
 };
 use ark_ec::{pairing::Pairing, scalar_mul::BatchMulPreprocessing, CurveGroup};
 use ark_ff::{Field, UniformRand, Zero};
-use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
+use ark_poly::GeneralEvaluationDomain;
 use ark_relations::r1cs::{
     ConstraintSynthesizer, ConstraintSystem, OptimizationGoal, Result as R1CSResult,
     SynthesisError, SynthesisMode,
